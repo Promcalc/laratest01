@@ -1,0 +1,58 @@
+# Имя вашего пайплайна
+variables:
+  DOCKER_IMAGE_NAME: ${CI_REGISTRY_IMAGE} # Использует предопределенную переменную GitLab для имени образа
+  DOCKER_TAG_VERSION: ${CI_COMMIT_TAG}   # Использует предопределенную переменную GitLab для тега коммита
+  DOCKERHUB_IMAGE_PATH: ${DOCKERHUB_USERNAME}/${CI_PROJECT_NAME}
+
+stages:
+  - build_and_push
+
+build_and_push_docker_image:
+  stage: build_and_push
+  image: docker:latest # Используем официальный образ Docker для выполнения команд Docker
+  services:
+    - docker:dind # dind (Docker-in-Docker) сервис для сборки Docker образов
+
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/' # Правило: запускать только при пуше тега, соответствующего формату "X.Y.Z"
+
+  script:
+    # 1. Логин в GitLab Container Registry
+    - echo "Logging into GitLab Container Registry..."
+    - docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}
+
+    # 2. Логин в Docker Hub
+    # Эти переменные (DOCKERHUB_USERNAME, DOCKERHUB_PASSWORD) должны быть настроены как CI/CD переменные в GitLab
+    - echo "Logging into Docker Hub..."
+    - docker login -u ${DOCKERHUB_USERNAME} -p ${DOCKERHUB_PASSWORD}
+
+    # 3. Сборка Docker образа
+    - echo "Building Docker image with tag: ${DOCKER_TAG_VERSION}"
+    - docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_TAG_VERSION} ${CI_PROJECT_DIR}
+
+    # 4. Тегирование и пуш для GitLab Container Registry
+    - echo "Tagging Docker image for GitLab Registry as latest..."
+    - docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_TAG_VERSION} ${DOCKER_IMAGE_NAME}:latest
+
+    - echo "Pushing Docker image to GitLab Registry with tag: ${DOCKER_TAG_VERSION}..."
+    - docker push ${DOCKER_IMAGE_NAME}:${DOCKER_TAG_VERSION}
+
+    - echo "Pushing Docker image to GitLab Registry with tag: latest..."
+    - docker push ${DOCKER_IMAGE_NAME}:latest
+
+    # 5. Тегирование и пуш для Docker Hub
+    - echo "Tagging Docker image for Docker Hub with tag: ${DOCKER_TAG_VERSION}..."
+    - docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_TAG_VERSION} ${DOCKERHUB_IMAGE_PATH}:${DOCKER_TAG_VERSION}
+
+    - echo "Tagging Docker image for Docker Hub as latest..."
+    - docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_TAG_VERSION} ${DOCKERHUB_IMAGE_PATH}:latest
+
+    - echo "Pushing Docker image to Docker Hub with tag: ${DOCKER_TAG_VERSION}..."
+    - docker push ${DOCKERHUB_IMAGE_PATH}:${DOCKER_TAG_VERSION}
+
+    - echo "Pushing Docker image to Docker Hub with tag: latest..."
+    - docker push ${DOCKERHUB_IMAGE_PATH}:latest
+
+  # Опционально: Очистка кэша после успешной сборки
+  after_script:
+    - echo "Docker build and push to GitLab Registry and Docker Hub completed."
